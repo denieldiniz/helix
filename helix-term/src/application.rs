@@ -773,27 +773,41 @@ impl Application {
                         helix_view::input::Event::FocusLost => {
                             let mode = cx.editor.mode;
                             let theme = &cx.editor.theme;
-                            let cursor_color = theme
-                                .try_get(match mode {
-                                    helix_view::document::Mode::Normal => "ui.cursor.unfocused.normal",
-                                    helix_view::document::Mode::Insert => "ui.cursor.unfocused.insert",
-                                    helix_view::document::Mode::Select => "ui.cursor.unfocused.select",
-                                })
-                                .or_else(|| theme.try_get("ui.cursor.unfocused"))
-                                .or_else(|| {
-                                    theme.try_get(match mode {
-                                        helix_view::document::Mode::Normal => "ui.cursor.primary.normal",
-                                        helix_view::document::Mode::Insert => "ui.cursor.primary.insert",
-                                        helix_view::document::Mode::Select => "ui.cursor.primary.select",
-                                    })
-                                })
-                                .or_else(|| theme.try_get("ui.cursor.primary"))
-                                .or_else(|| theme.try_get("ui.cursor"))
-                                .and_then(|style| style.bg.or(style.fg));
+                            let cursor_color = match mode {
+                                helix_view::document::Mode::Normal => {
+                                    theme.try_get_exact("ui.cursor.unfocused.normal")
+                                }
+                                helix_view::document::Mode::Insert => {
+                                    theme.try_get_exact("ui.cursor.unfocused.insert")
+                                }
+                                helix_view::document::Mode::Select => {
+                                    theme.try_get_exact("ui.cursor.unfocused.select")
+                                }
+                            }
+                            .or_else(|| theme.try_get_exact("ui.cursor.unfocused"))
+                            .or_else(|| match mode {
+                                helix_view::document::Mode::Normal => {
+                                    theme.try_get_exact("ui.cursor.primary.normal")
+                                        .or_else(|| theme.try_get_exact("ui.cursor.normal"))
+                                }
+                                helix_view::document::Mode::Insert => {
+                                    theme.try_get_exact("ui.cursor.primary.insert")
+                                        .or_else(|| theme.try_get_exact("ui.cursor.insert"))
+                                }
+                                helix_view::document::Mode::Select => {
+                                    theme.try_get_exact("ui.cursor.primary.select")
+                                        .or_else(|| theme.try_get_exact("ui.cursor.select"))
+                                }
+                            })
+                            .or_else(|| theme.try_get("ui.cursor.primary"))
+                            .or_else(|| theme.try_get("ui.cursor"))
+                            .and_then(|style| style.bg.or(style.fg));
                             let _ = self.terminal.backend_mut().set_cursor_color(cursor_color);
+                            let _ = self.terminal.backend_mut().flush();
                         }
                         helix_view::input::Event::FocusGained => {
                             let _ = self.terminal.backend_mut().set_cursor_color(None);
+                            let _ = self.terminal.backend_mut().flush();
                         }
                         _ => {}
                     }

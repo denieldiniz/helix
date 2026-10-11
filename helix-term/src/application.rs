@@ -706,8 +706,18 @@ impl Application {
             jobs: &mut self.jobs,
             scroll: None,
         };
-        // Handle key events
-        let should_redraw = match event.unwrap() {
+        let terminal_event = event.unwrap();
+        #[cfg(not(windows))]
+        let is_focus_lost = matches!(&terminal_event, termina::Event::FocusOut);
+        #[cfg(windows)]
+        let is_focus_lost = matches!(&terminal_event, crossterm::event::Event::FocusLost);
+
+        #[cfg(not(windows))]
+        let is_focus_gained = matches!(&terminal_event, termina::Event::FocusIn);
+        #[cfg(windows)]
+        let is_focus_gained = matches!(&terminal_event, crossterm::event::Event::FocusGained);
+
+        let should_redraw = match terminal_event {
             #[cfg(not(windows))]
             termina::Event::WindowResized(termina::WindowSize { rows, cols, .. }) => {
                 self.terminal
@@ -768,56 +778,53 @@ impl Application {
             event if event.is_escape() => false,
             event => {
                 let event: helix_view::input::Event = event.into();
-                if cx.editor.config().sync_cursor_color {
-                    match event {
-                        helix_view::input::Event::FocusLost => {
-                            let mode = cx.editor.mode;
-                            let theme = &cx.editor.theme;
-                            let cursor_color = match mode {
-                                helix_view::document::Mode::Normal => {
-                                    theme.try_get_exact("ui.cursor.unfocused.normal")
-                                }
-                                helix_view::document::Mode::Insert => {
-                                    theme.try_get_exact("ui.cursor.unfocused.insert")
-                                }
-                                helix_view::document::Mode::Select => {
-                                    theme.try_get_exact("ui.cursor.unfocused.select")
-                                }
-                            }
-                            .or_else(|| theme.try_get_exact("ui.cursor.unfocused"))
-                            .or_else(|| match mode {
-                                helix_view::document::Mode::Normal => {
-                                    theme.try_get_exact("ui.cursor.primary.normal")
-                                        .or_else(|| theme.try_get_exact("ui.cursor.normal"))
-                                }
-                                helix_view::document::Mode::Insert => {
-                                    theme.try_get_exact("ui.cursor.primary.insert")
-                                        .or_else(|| theme.try_get_exact("ui.cursor.insert"))
-                                }
-                                helix_view::document::Mode::Select => {
-                                    theme.try_get_exact("ui.cursor.primary.select")
-                                        .or_else(|| theme.try_get_exact("ui.cursor.select"))
-                                }
-                            })
-                            .or_else(|| theme.try_get("ui.cursor.primary"))
-                            .or_else(|| theme.try_get("ui.cursor"))
-                            .and_then(|style| style.bg.or(style.fg));
-                            let _ = self.terminal.backend_mut().set_cursor_color(cursor_color);
-                            let _ = self.terminal.backend_mut().flush();
-                        }
-                        helix_view::input::Event::FocusGained => {
-                            let _ = self.terminal.backend_mut().set_cursor_color(None);
-                            let _ = self.terminal.backend_mut().flush();
-                        }
-                        _ => {}
-                    }
-                }
                 self.compositor.handle_event(&event, &mut cx)
             }
         };
 
         if should_redraw && !self.editor.should_close() {
             self.render().await;
+        }
+
+        if self.editor.config().sync_cursor_color {
+            if is_focus_lost {
+                let mode = self.editor.mode;
+                let theme = &self.editor.theme;
+                let cursor_color = match mode {
+                    helix_view::document::Mode::Normal => {
+                        theme.try_get_exact("ui.cursor.unfocused.normal")
+                    }
+                    helix_view::document::Mode::Insert => {
+                        theme.try_get_exact("ui.cursor.unfocused.insert")
+                    }
+                    helix_view::document::Mode::Select => {
+                        theme.try_get_exact("ui.cursor.unfocused.select")
+                    }
+                }
+                .or_else(|| theme.try_get_exact("ui.cursor.unfocused"))
+                .or_else(|| match mode {
+                    helix_view::document::Mode::Normal => {
+                        theme.try_get_exact("ui.cursor.primary.normal")
+                            .or_else(|| theme.try_get_exact("ui.cursor.normal"))
+                    }
+                    helix_view::document::Mode::Insert => {
+                        theme.try_get_exact("ui.cursor.primary.insert")
+                            .or_else(|| theme.try_get_exact("ui.cursor.insert"))
+                    }
+                    helix_view::document::Mode::Select => {
+                        theme.try_get_exact("ui.cursor.primary.select")
+                            .or_else(|| theme.try_get_exact("ui.cursor.select"))
+                    }
+                })
+                .or_else(|| theme.try_get("ui.cursor.primary"))
+                .or_else(|| theme.try_get("ui.cursor"))
+                .and_then(|style| style.bg.or(style.fg));
+                let _ = self.terminal.backend_mut().set_cursor_color(cursor_color);
+                let _ = self.terminal.backend_mut().flush();
+            } else if is_focus_gained {
+                let _ = self.terminal.backend_mut().set_cursor_color(None);
+                let _ = self.terminal.backend_mut().flush();
+            }
         }
     }
 

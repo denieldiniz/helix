@@ -766,7 +766,40 @@ impl Application {
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self.compositor.handle_event(&event.into(), &mut cx),
+            event => {
+                let event: helix_view::input::Event = event.into();
+                if cx.editor.config().sync_cursor_color {
+                    match event {
+                        helix_view::input::Event::FocusLost => {
+                            let mode = cx.editor.mode;
+                            let theme = &cx.editor.theme;
+                            let cursor_color = theme
+                                .try_get(match mode {
+                                    helix_view::document::Mode::Normal => "ui.cursor.unfocused.normal",
+                                    helix_view::document::Mode::Insert => "ui.cursor.unfocused.insert",
+                                    helix_view::document::Mode::Select => "ui.cursor.unfocused.select",
+                                })
+                                .or_else(|| theme.try_get("ui.cursor.unfocused"))
+                                .or_else(|| {
+                                    theme.try_get(match mode {
+                                        helix_view::document::Mode::Normal => "ui.cursor.primary.normal",
+                                        helix_view::document::Mode::Insert => "ui.cursor.primary.insert",
+                                        helix_view::document::Mode::Select => "ui.cursor.primary.select",
+                                    })
+                                })
+                                .or_else(|| theme.try_get("ui.cursor.primary"))
+                                .or_else(|| theme.try_get("ui.cursor"))
+                                .and_then(|style| style.bg.or(style.fg));
+                            let _ = self.terminal.backend_mut().set_cursor_color(cursor_color);
+                        }
+                        helix_view::input::Event::FocusGained => {
+                            let _ = self.terminal.backend_mut().set_cursor_color(None);
+                        }
+                        _ => {}
+                    }
+                }
+                self.compositor.handle_event(&event, &mut cx)
+            }
         };
 
         if should_redraw && !self.editor.should_close() {
@@ -1275,6 +1308,10 @@ impl Application {
         self.terminal
             .backend_mut()
             .show_cursor(CursorKind::Block)
+            .ok();
+        self.terminal
+            .backend_mut()
+            .set_cursor_color(None)
             .ok();
         self.terminal.restore()
     }

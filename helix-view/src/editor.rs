@@ -56,7 +56,7 @@ use helix_dap::{self as dap, registry::DebugAdapterId};
 use helix_lsp::lsp;
 use helix_stdx::path::canonicalize;
 
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use arc_swap::{
     access::{DynAccess, DynGuard},
@@ -434,6 +434,8 @@ pub struct Config {
     pub buffer_picker: BufferPickerConfig,
     /// Workspace-trust configuration.
     pub workspace_trust: WorkspaceTrustConfig,
+    /// Whether to synchronize terminal cursor colors dynamically on focus events. Defaults to `false`.
+    pub sync_cursor_color: bool,
 }
 
 /// User-facing configuration for `[editor.workspace-trust]`.
@@ -806,15 +808,53 @@ pub enum StatusLineElement {
     CodeActionHint,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UnfocusedCursorShape {
+    Match,
+    Block,
+    Bar,
+    #[default]
+    Underline,
+    Hidden,
+}
+
+impl UnfocusedCursorShape {
+    pub fn resolve(&self, active: CursorKind) -> CursorKind {
+        match self {
+            Self::Match => active,
+            Self::Block => CursorKind::Block,
+            Self::Bar => CursorKind::Bar,
+            Self::Underline => CursorKind::Underline,
+            Self::Hidden => CursorKind::Hidden,
+        }
+    }
+}
+
 // Cursor shape is read and used on every rendered frame and so needs
 // to be fast. Therefore we avoid a hashmap and use an enum indexed array.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CursorShapeConfig([CursorKind; 3]);
+pub struct CursorShapeConfig {
+    shapes: [CursorKind; 3],
+    pub unfocused: UnfocusedCursorShape,
+}
 
 impl CursorShapeConfig {
     pub fn from_mode(&self, mode: Mode) -> CursorKind {
-        self.get(mode as usize).copied().unwrap_or_default()
+        self.shapes.get(mode as usize).copied().unwrap_or_default()
     }
+}
+
+#[derive(Deserialize, Serialize)]
+struct CursorShapeConfigToml {
+    #[serde(default)]
+    normal: CursorKind,
+    #[serde(default)]
+    select: CursorKind,
+    #[serde(default)]
+    insert: CursorKind,
+    #[serde(default)]
+    unfocused: UnfocusedCursorShape,
 }
 
 impl<'de> Deserialize<'de> for CursorShapeConfig {
@@ -822,13 +862,11 @@ impl<'de> Deserialize<'de> for CursorShapeConfig {
     where
         D: Deserializer<'de>,
     {
-        let m = HashMap::<Mode, CursorKind>::deserialize(deserializer)?;
-        let into_cursor = |mode: Mode| m.get(&mode).copied().unwrap_or_default();
-        Ok(CursorShapeConfig([
-            into_cursor(Mode::Normal),
-            into_cursor(Mode::Select),
-            into_cursor(Mode::Insert),
-        ]))
+        let toml = CursorShapeConfigToml::deserialize(deserializer)?;
+        Ok(CursorShapeConfig {
+            shapes: [toml.normal, toml.select, toml.insert],
+            unfocused: toml.unfocused,
+        })
     }
 }
 
@@ -837,12 +875,13 @@ impl Serialize for CursorShapeConfig {
     where
         S: serde::Serializer,
     {
-        let mut map = serializer.serialize_map(Some(self.len()))?;
-        let modes = [Mode::Normal, Mode::Select, Mode::Insert];
-        for mode in modes {
-            map.serialize_entry(&mode, &self.from_mode(mode))?;
-        }
-        map.end()
+        let toml = CursorShapeConfigToml {
+            normal: self.from_mode(Mode::Normal),
+            select: self.from_mode(Mode::Select),
+            insert: self.from_mode(Mode::Insert),
+            unfocused: self.unfocused,
+        };
+        toml.serialize(serializer)
     }
 }
 
@@ -850,13 +889,16 @@ impl std::ops::Deref for CursorShapeConfig {
     type Target = [CursorKind; 3];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.shapes
     }
 }
 
 impl Default for CursorShapeConfig {
     fn default() -> Self {
-        Self([CursorKind::Block; 3])
+        Self {
+            shapes: [CursorKind::Block; 3],
+            unfocused: UnfocusedCursorShape::default(),
+        }
     }
 }
 
@@ -1240,6 +1282,7 @@ impl Default for Config {
             kitty_keyboard_protocol: Default::default(),
             buffer_picker: BufferPickerConfig::default(),
             workspace_trust: WorkspaceTrustConfig::default(),
+            sync_cursor_color: false,
         }
     }
 }

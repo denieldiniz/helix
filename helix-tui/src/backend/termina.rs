@@ -81,6 +81,8 @@ pub struct TerminaBackend {
     is_synchronized_output_set: bool,
     /// The requested terminal background color, set in `Self::set_background_color`.
     background_color: Option<RgbColor>,
+    /// The requested terminal cursor color, set in `Self::set_cursor_color`.
+    cursor_color: Option<RgbColor>,
     /// The terminal emulator's background color. This is queried when claiming the terminal so
     /// that custom colors set outside of Helix with OSC11 are restored when Helix exits.
     original_background_color: Option<RgbColor>,
@@ -254,6 +256,7 @@ impl TerminaBackend {
             reset_cursor_command,
             is_synchronized_output_set: false,
             background_color: None,
+            cursor_color: None,
             original_background_color,
         })
     }
@@ -303,6 +306,14 @@ impl TerminaBackend {
                 ),
                 None => Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor),
             }
+        )
+    }
+
+    fn reset_cursor_color(&mut self) -> io::Result<()> {
+        write!(
+            self.terminal,
+            "{}",
+            Osc::ResetDynamicColor(osc::DynamicColorNumber::TextCursorColor)
         )
     }
 
@@ -464,6 +475,9 @@ impl Backend for TerminaBackend {
         )?;
         if self.background_color.is_some() {
             self.reset_background_color()?;
+        }
+        if self.cursor_color.is_some() {
+            self.reset_cursor_color()?;
         }
         self.terminal.flush()?;
         self.terminal.enter_cooked_mode()?;
@@ -637,6 +651,25 @@ impl Backend for TerminaBackend {
             self.reset_background_color()
         }
     }
+
+    fn set_cursor_color(&mut self, color: Option<Color>) -> io::Result<()> {
+        self.cursor_color = match color {
+            Some(Color::Rgb(r, g, b)) => Some(RgbColor::new(r, g, b)),
+            _ => None,
+        };
+        if let Some(color) = self.cursor_color {
+            write!(
+                self.terminal,
+                "{}",
+                Osc::ChangeDynamicColors(
+                    osc::DynamicColorNumber::TextCursorColor,
+                    vec![color.into()]
+                )
+            )
+        } else {
+            self.reset_cursor_color()
+        }
+    }
 }
 
 impl Drop for TerminaBackend {
@@ -656,6 +689,9 @@ impl Drop for TerminaBackend {
             );
             if self.background_color.is_some() {
                 let _ = self.reset_background_color();
+            }
+            if self.cursor_color.is_some() {
+                let _ = self.reset_cursor_color();
             }
             // NOTE: Drop for Platform terminal resets the mode and flushes the buffer when not
             // panicking.

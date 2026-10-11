@@ -342,6 +342,10 @@ where
     fn set_background_color(&mut self, _color: Option<helix_view::theme::Color>) -> io::Result<()> {
         Ok(())
     }
+
+    fn set_cursor_color(&mut self, _color: Option<helix_view::theme::Color>) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

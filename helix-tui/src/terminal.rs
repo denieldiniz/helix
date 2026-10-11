@@ -242,6 +242,10 @@ where
         Ok(())
     }
 
+    pub fn set_cursor_color(&mut self, color: Option<helix_view::theme::Color>) -> io::Result<()> {
+        self.backend.set_cursor_color(color)
+    }
+
     pub fn set_cursor(&mut self, x: u16, y: u16) -> io::Result<()> {
         self.backend.set_cursor(x, y)
     }

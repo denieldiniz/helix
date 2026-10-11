@@ -55,4 +55,7 @@ pub trait Backend {
     fn supports_true_color(&self) -> bool;
     fn get_theme_mode(&self) -> Option<helix_view::theme::Mode>;
     fn set_background_color(&mut self, color: Option<Color>) -> io::Result<()>;
+    fn set_cursor_color(&mut self, _color: Option<Color>) -> io::Result<()> {
+        Ok(())
+    }
 }
